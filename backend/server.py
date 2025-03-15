@@ -319,7 +319,7 @@ async def list_presencas(date: str = None, page: int = 1, limit: int = 10):
     """
     try:
         if not date:
-            date = datetime.datetime.now().strftime("%Y-%m-%d")
+            date = datetime.now().strftime("%Y-%m-%d")
         skip = (page - 1) * limit
 
         cursor = presencas.find({"data_captura_frame": date}).sort([("data_captura_frame", -1), ("hora_captura_frame", -1)]).skip(skip).limit(limit)
@@ -340,7 +340,7 @@ async def list_presencas(date: str = None, page: int = 1, limit: int = 10):
                 "tempo_processamento": p.get("tempo_processamento")
             })
 
-        total = presencas.count_documents({"data": date})
+        total = presencas.count_documents({"data_captura_frame": date})
         return JSONResponse({"presencas": results, "total": total, "date": date}, status_code=200)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)

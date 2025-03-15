@@ -45,7 +45,6 @@ MONGO_DB_NAME = os.getenv('MONGO_DB_NAME')
 MODEL_NAME = os.getenv('MODEL_NAME')
 SIMILARITY_THRESHOLD = 0.6
 
-print(MODEL_NAME)
 
 # Conexão ao MongoDB
 client = MongoClient(MONGO_URI)
@@ -79,6 +78,14 @@ def generate_embedding(image_path):
         logger.error(f"❌ Erro ao gerar embedding: {e}")
         return None
     
+def is_similar_embedding(new_embedding, existing_embeddings, threshold=SIMILARITY_THRESHOLD):
+    """Verifica se o embedding gerado é similar a algum dos embeddings armazenados."""
+    for existing_embedding in existing_embeddings:
+        distance = np.linalg.norm(np.array(new_embedding) - np.array(existing_embedding))
+        if distance < threshold:
+            return True
+    return False
+    
 def get_image_hash(image_bytes):
     """Calcula o hash MD5 de uma imagem."""
     return hashlib.md5(image_bytes).hexdigest()
@@ -111,10 +118,6 @@ def upload_image_to_minio(image: Image.Image, uuid: str) -> str:
     else:
         logger.info("Imagem já existente, não será reenviada para MinIO.")
         return None
-    
-# -------------------------------
-# Processamento da Face com Embeddings
-# -------------------------------
 
 def process_face(image: Image.Image, start_time: datetime = None) -> dict:
     """Processa a imagem da face e realiza o reconhecimento."""
@@ -128,17 +131,12 @@ def process_face(image: Image.Image, start_time: datetime = None) -> dict:
     temp_file = os.path.join(TEMP_DIR, f"temp_input_{uuid.uuid4()}.png")
     image.save(temp_file)
     
-    new_embedding = generate_embedding(temp_file)
-
-    if new_embedding is None:
-        logger.error("❌ Falha ao gerar o embedding da face.")
-        os.remove(temp_file)
-        return {"error": "Falha na geração do embedding"}
+    #new_embedding = generate_embedding(temp_file)
 
     # 📌 Busca apenas pessoas com imagens cadastradas
     known_people = list(pessoas.find({
                         "image_paths": {"$exists": True, "$ne": []},
-                        "embeddings": {"$exists": True, "$ne": None, "$ne": []}
+                        "face_embedding": {"$exists": True, "$ne": None, "$ne": []}
                     }))
 
     match_found = False
@@ -146,13 +144,18 @@ def process_face(image: Image.Image, start_time: datetime = None) -> dict:
 
     for pessoa in known_people:
         person_uuid = pessoa["uuid"]
-        stored_embeddings = pessoa.get("embeddings", [])
+        image_paths = pessoa.get("image_paths", [])
 
-        for stored_embedding  in stored_embeddings:
+        for stored_image_path in image_paths:
             try:
+                # 📌 Baixar imagem do MinIO para comparação
+                stored_temp_path = os.path.join(TEMP_DIR, os.path.basename(stored_image_path))
+                minio_client.fget_object(BUCKET_RECONHECIMENTO, stored_image_path, stored_temp_path)
+
+                # 📌 Usar caminho do arquivo real no DeepFace
                 result = DeepFace.verify(
-                    img1_path=new_embedding,
-                    img2_path=stored_embedding,
+                    img1_path=temp_file,
+                    img2_path=stored_temp_path,
                     enforce_detection=False,
                     model_name=MODEL_NAME
                 )
@@ -163,7 +166,7 @@ def process_face(image: Image.Image, start_time: datetime = None) -> dict:
                     logger.info(f"✅ Face reconhecida - UUID: {matched_uuid}")
                     break
             except Exception as e:
-                logger.error(f"❌ Erro ao verificar com {new_embedding}: {e}")
+                logger.error(f"❌ Erro ao verificar com {stored_image_path}: {e}")
 
         if match_found:
             break
@@ -204,9 +207,9 @@ def process_face(image: Image.Image, start_time: datetime = None) -> dict:
         logger.info("✅ Embedding atualizado no MongoDB")
 
     # 📌 Remover arquivos temporários
-    #os.remove(temp_file)
-    #if os.path.exists(stored_temp_path):
-    #    os.remove(stored_temp_path)
+    os.remove(temp_file)
+    if os.path.exists(stored_temp_path):
+        os.remove(stored_temp_path)
 
     return {
         "uuid": matched_uuid,
