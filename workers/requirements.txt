@@ -1,0 +1,13 @@
+opencv-python
+minio
+aio_pika
+tk
+pillow
+pika 
+minio 
+dlib 
+pymongo
+tensorflow==2.11.0
+deepface==0.0.93
+numpy<2
+python-dotenv
