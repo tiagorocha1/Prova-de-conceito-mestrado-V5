@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+from tkinter import ttk, messagebox
 import cv2
 import asyncio
 from threading import Thread
@@ -11,6 +11,8 @@ from minio import Minio
 from dotenv import load_dotenv
 import json
 import aio_pika
+from datetime import datetime
+
 
 # ----------------------------
 # Carregar Variáveis de Ambiente
@@ -68,15 +70,6 @@ class WebcamApp:
         # Lista de webcams disponíveis
         self.cameras = self.get_available_cameras()
 
-        # Dropdown para seleção da fonte (webcam ou arquivo de vídeo)
-        self.source_label = tk.Label(root, text="Selecione a Fonte:")
-        self.source_label.pack(pady=10)
-
-        self.source_var = tk.StringVar()
-        self.source_dropdown = ttk.Combobox(root, textvariable=self.source_var, values=["Webcam", "Arquivo de Vídeo"])
-        self.source_dropdown.pack()
-        self.source_dropdown.current(0)
-
         # Dropdown para seleção da webcam
         self.camera_label = tk.Label(root, text="Selecione a Webcam:")
         self.camera_label.pack(pady=10)
@@ -86,10 +79,6 @@ class WebcamApp:
         self.camera_dropdown.pack()
         if self.cameras:
             self.camera_dropdown.current(0)
-
-        # Botão para selecionar arquivo de vídeo
-        self.video_button = tk.Button(root, text="Selecionar Arquivo de Vídeo", command=self.select_video_file)
-        self.video_button.pack(pady=10)
 
         # Botões para iniciar e parar a captura
         self.start_button = tk.Button(root, text="Iniciar Captura", command=self.start_capture, bg="green", fg="white")
@@ -105,7 +94,6 @@ class WebcamApp:
 
         self.cap = None  # Instância do VideoCapture
         self.running = False
-        self.video_file = None
 
         # Cria um loop asyncio para tarefas assíncronas
         self.loop = asyncio.new_event_loop()
@@ -122,34 +110,17 @@ class WebcamApp:
                 cap.release()
         return available_cameras if available_cameras else []
 
-    def select_video_file(self):
-        """Abre um diálogo para selecionar um arquivo de vídeo."""
-        self.video_file = filedialog.askopenfilename(filetypes=[("Arquivos de Vídeo", "*.mp4;*.avi;*.mov")])
-        if self.video_file:
-            self.source_var.set("Arquivo de Vídeo")
-
     def start_capture(self):
-        """Inicia a captura e exibição do vídeo da webcam ou arquivo de vídeo."""
-        source = self.source_var.get()
-        if source == "Webcam":
-            if not self.cameras:
-                messagebox.showerror("Erro", "Nenhuma câmera encontrada!")
-                return
+        """Inicia a captura e exibição do vídeo da webcam."""
+        if not self.cameras:
+            messagebox.showerror("Erro", "Nenhuma câmera encontrada!")
+            return
 
-            camera_index = int(self.camera_var.get().split()[-1])
-            self.cap = cv2.VideoCapture(camera_index)
-            if not self.cap.isOpened():
-                messagebox.showerror("Erro", f"A câmera {camera_index} não pôde ser aberta.")
-                return
-        elif source == "Arquivo de Vídeo":
-            if not self.video_file:
-                messagebox.showerror("Erro", "Nenhum arquivo de vídeo selecionado!")
-                return
-
-            self.cap = cv2.VideoCapture(self.video_file)
-            if not self.cap.isOpened():
-                messagebox.showerror("Erro", f"O arquivo de vídeo {self.video_file} não pôde ser aberto.")
-                return
+        camera_index = int(self.camera_var.get().split()[-1])
+        self.cap = cv2.VideoCapture(camera_index)
+        if not self.cap.isOpened():
+            messagebox.showerror("Erro", f"A câmera {camera_index} não pôde ser aberta.")
+            return
 
         self.running = True
         self.start_button.config(state=tk.DISABLED)
@@ -168,7 +139,7 @@ class WebcamApp:
         self.preview_label.config(image='')
 
     def update_frame(self):
-        """Atualiza o preview da webcam ou arquivo de vídeo e agenda o envio do frame."""
+        """Atualiza o preview da webcam e agenda o envio do frame."""
         if self.running and self.cap:
             ret, frame = self.cap.read()
             if ret:
@@ -204,6 +175,7 @@ class WebcamApp:
             print(f"✅ Imagem salva e mensagem enviada: {minio_path}")
         except Exception as e:
             print(f"❌ Erro no upload: {e}")
+
 
     def run_asyncio_loop(self):
         """Executa o loop asyncio em uma thread separada."""
@@ -253,3 +225,5 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = WebcamApp(root)
     root.mainloop()
+
+

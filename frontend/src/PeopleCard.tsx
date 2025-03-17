@@ -113,7 +113,7 @@ const PeopleCard: React.FC<PeopleCardProps> = ({ uuid, tags, onOpenModal, onDele
         <img
           src={primaryPhoto}
           alt={`Face da pessoa ${uuid}`}
-          style={{ width: "100%", borderRadius: "4px" }}
+          style={{ maxWidth: "100%",height: "auto", borderRadius: "4px" }}
         />
       ) : (
         <div style={{ width: "100%", height: "120px", backgroundColor: "#eee" }} />

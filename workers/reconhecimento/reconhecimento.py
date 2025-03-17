@@ -43,7 +43,7 @@ QUEUE_NAME = os.getenv("QUEUE_NAME")
 MONGO_URI = os.getenv('MONGO_URI')
 MONGO_DB_NAME = os.getenv('MONGO_DB_NAME')
 MODEL_NAME = os.getenv('MODEL_NAME')
-SIMILARITY_THRESHOLD = 0.6
+SIMILARITY_THRESHOLD = 0.30
 
 print(MODEL_NAME)
 
@@ -70,10 +70,14 @@ channel.queue_declare(queue="reconhecimentos", durable=True)  # 🔹 Fila de sa�
 # -------------------------------
 # Função de Processamento
 # -------------------------------
-def generate_embedding(image_path):
+def generate_embedding(image: Image.Image):
     """Gera o embedding facial usando DeepFace."""
     try:
-        embeddings = DeepFace.represent(img_path=image_path, model_name=MODEL_NAME)
+        # Converter a imagem para numpy array
+        image_np = np.array(image)
+        
+        # Gerar embedding diretamente da imagem em numpy array
+        embeddings = DeepFace.represent(img_path=image_np, model_name=MODEL_NAME, enforce_detection=False)
         return embeddings[0]['embedding'] if embeddings else None
     except Exception as e:
         logger.error(f"❌ Erro ao gerar embedding: {e}")
@@ -125,14 +129,14 @@ def process_face(image: Image.Image, start_time: datetime = None) -> dict:
     logger.info(f"Iniciando processamento da face em {start_time}")
 
     # 📌 Salvar a imagem temporariamente no disco antes de comparar
-    temp_file = os.path.join(TEMP_DIR, f"temp_input_{uuid.uuid4()}.png")
-    image.save(temp_file)
+    #temp_file = os.path.join(TEMP_DIR, f"temp_input_{uuid.uuid4()}.png")
+    #image.save(temp_file)
     
-    new_embedding = generate_embedding(temp_file)
+    new_embedding = generate_embedding(image)
 
     if new_embedding is None:
         logger.error("❌ Falha ao gerar o embedding da face.")
-        os.remove(temp_file)
+    #    os.remove(temp_file)
         return {"error": "Falha na geração do embedding"}
 
     # 📌 Busca apenas pessoas com imagens cadastradas
@@ -157,7 +161,8 @@ def process_face(image: Image.Image, start_time: datetime = None) -> dict:
                     model_name=MODEL_NAME
                 )
 
-                if result.get("verified") is True:
+                #if result.get("verified") is True:
+                if result["distance"] < SIMILARITY_THRESHOLD:
                     match_found = True
                     matched_uuid = person_uuid
                     logger.info(f"✅ Face reconhecida - UUID: {matched_uuid}")
@@ -195,7 +200,7 @@ def process_face(image: Image.Image, start_time: datetime = None) -> dict:
     finish_time = datetime.now()
     processing_time_ms = int((finish_time - start_time).total_seconds() * 1000)
     
-    embedding = generate_embedding(temp_file)
+    embedding = generate_embedding(image)
     if embedding:
         pessoas.update_one(
             {"uuid": matched_uuid},
@@ -236,8 +241,8 @@ def callback(ch, method, properties, body):
         logger.info(f"📩 Processando: {minio_path}")
 
         # Baixar imagem do MinIO
-        temp_face_path = os.path.join(TEMP_DIR, os.path.basename(minio_path))
-        minio_client.fget_object(BUCKET_DETECCOES, minio_path, temp_face_path)
+        response = minio_client.get_object(BUCKET_DETECCOES, minio_path)
+        image = Image.open(BytesIO(response.read()))
         
         # Dados da captura do frame
         data_captura = msg.get("data_captura_frame")
@@ -245,16 +250,13 @@ def callback(ch, method, properties, body):
 
         # Capturar tempo de início do processamento
         start_time = datetime.now()
-        
-        # Abrir imagem
-        image = Image.open(temp_face_path)
 
         # Processar reconhecimento facial
         result = process_face(image, start_time=start_time)
 
         # Capturar tempo de término do processamento
-        finish_time = datetime.now()
-        processing_time_ms = int((finish_time - start_time).total_seconds() * 1000)
+        #finish_time = datetime.now()
+        #processing_time_ms = int((finish_time - start_time).total_seconds() * 1000)
 
         # Criar mensagem de saída com todas as informações
         output_msg = json.dumps({
@@ -278,7 +280,7 @@ def callback(ch, method, properties, body):
         logger.info(f"✅ Reconhecimento enviado para fila 'reconhecimentos': {output_msg}")
 
         # Remover arquivo temporário
-        os.remove(temp_face_path)
+        #os.remove(temp_face_path)
 
         ch.basic_ack(delivery_tag=method.delivery_tag)
 

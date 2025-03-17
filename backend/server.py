@@ -344,8 +344,46 @@ async def list_presencas(date: str = None, page: int = 1, limit: int = 10):
         return JSONResponse({"presencas": results, "total": total, "date": date}, status_code=200)
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+@app.get("/presentes")
+async def list_presentes(date: str, min_presencas: int):
+    """
+    Retorna uma lista de pessoas presentes na data especificada com pelo menos `min_presencas` registros de presença.
+    """
+    try:
+        logger.info(f"Buscando presentes para a data: {date} com mínimo de presenças: {min_presencas}")
 
+        # Filtrar presenças pela data e agrupar por pessoa
+        pipeline = [
+            {"$match": {"data_captura_frame": date}},
+            {"$group": {"_id": "$pessoa", "count": {"$sum": 1}}},
+            {"$match": {"count": {"$gte": min_presencas}}},
+            {"$sort": {"count": -1}}  # Ordenar de forma decrescente pela quantidade de presenças
+        ]
+        presencas_agrupadas = list(presencas.aggregate(pipeline))
+        logger.info(f"Presenças agrupadas: {presencas_agrupadas}")
 
+        # Obter UUIDs das pessoas que atendem ao critério
+        uuids = [p["_id"] for p in presencas_agrupadas]
+        logger.info(f"UUIDs das pessoas que atendem ao critério: {uuids}")
+
+        # Obter detalhes das pessoas
+        pessoas_detalhes = pessoas.find({"uuid": {"$in": uuids}})
+        result = []
+        for pessoa in pessoas_detalhes:
+            primary_photo = get_presigned_url(pessoa["image_paths"][0]) if pessoa.get("image_paths") else None
+            presencas_count = next((p["count"] for p in presencas_agrupadas if p["_id"] == pessoa["uuid"]), 0)
+            result.append({
+                "uuid": pessoa["uuid"],
+                "primary_photo": primary_photo,
+                "tags": pessoa.get("tags", []),
+                "presencas_count": presencas_count
+            })
+        logger.info(f"Detalhes das pessoas: {result}")
+
+        return JSONResponse({"pessoas": result}, status_code=200)
+    except Exception as e:
+        logger.error(f"Erro ao buscar presentes: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 # To run:
 # python -m uvicorn server:app --reload --host 0.0.0.0 --port 8000
