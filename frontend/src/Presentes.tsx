@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Modal from 'react-modal';
+import { useAuth } from "./AuthContext";
 
 interface Pessoa {
   uuid: string;
@@ -26,13 +27,25 @@ const Presentes: React.FC = () => {
   const [modalIsOpen, setModalIsOpen] = useState<boolean>(false);
   const [selectedPessoaUuid, setSelectedPessoaUuid] = useState<string | null>(null);
   const [photos, setPhotos] = useState<string[]>([]);
+  const [tags, setTags] = useState<string[]>([]); // Estado para armazenar as tags da pessoa selecionada
   const [photosLoading, setPhotosLoading] = useState<boolean>(false);
 
+  const { token } = useAuth();
   const fetchPresentes = useCallback(async () => {
     setLoading(true);
     setError(null);
+
+     // Formata a data para o formato "dd-MM-yyyy"
+  const dateObj = new Date(date);
+  const day = String(dateObj.getUTCDate()).padStart(2, '0');
+  const month = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
+  const year = dateObj.getUTCFullYear();
+  const formattedDate = `${day}-${month}-${year}`;
+  
     try {
-      const response = await fetch(`http://localhost:8000/presentes?date=${date}&min_presencas=${minPresencas}`);
+      const response = await fetch(`http://localhost:8000/presentes?date=${formattedDate}&min_presencas=${minPresencas}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (!response.ok) {
         throw new Error('Erro ao buscar os presentes.');
       }
@@ -51,12 +64,19 @@ const Presentes: React.FC = () => {
     }
   }, [date, minPresencas, fetchPresentes]);
 
-  const fetchPhotos = async (uuid: string) => {
+  const fetchPhotosAndTags = async (uuid: string) => {
     setPhotosLoading(true);
     try {
-      const res = await fetch(`http://localhost:8000/pessoas/${uuid}/photos`);
+      const res = await fetch(`http://localhost:8000/pessoas/${uuid}/photos`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const data: PessoaPhotos = await res.json();
       setPhotos(data.image_urls);
+
+      const pessoa = pessoas.find(p => p.uuid === uuid);
+      if (pessoa) {
+        setTags(pessoa.tags);
+      }
     } catch (error) {
       console.error('Erro ao buscar fotos da pessoa:', error);
     }
@@ -66,12 +86,13 @@ const Presentes: React.FC = () => {
   const openModal = (uuid: string) => {
     setSelectedPessoaUuid(uuid);
     setModalIsOpen(true);
-    fetchPhotos(uuid);
+    fetchPhotosAndTags(uuid);
   };
 
   const closeModal = () => {
     setModalIsOpen(false);
     setPhotos([]);
+    setTags([]);
     setSelectedPessoaUuid(null);
   };
 
@@ -80,12 +101,12 @@ const Presentes: React.FC = () => {
     try {
       const res = await fetch(`http://localhost:8000/pessoas/${selectedPessoaUuid}/photos`, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ photo: photoUrl }),
       });
       if (res.ok) {
         // Atualiza a listagem de fotos após a remoção
-        fetchPhotos(selectedPessoaUuid);
+        fetchPhotosAndTags(selectedPessoaUuid);
       } else {
         console.error('Erro ao remover foto para', selectedPessoaUuid);
       }
@@ -98,7 +119,7 @@ const Presentes: React.FC = () => {
     try {
       const res = await fetch(`http://localhost:8000/pessoas/${uuid}/tags`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' , Authorization: `Bearer ${token}`},
         body: JSON.stringify({ tag }),
       });
       if (res.ok) {
@@ -115,7 +136,7 @@ const Presentes: React.FC = () => {
     try {
       const res = await fetch(`http://localhost:8000/pessoas/${uuid}/tags`, {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ tag }),
       });
       if (res.ok) {
@@ -141,95 +162,28 @@ const Presentes: React.FC = () => {
             style={{ marginLeft: '10px' }}
           />
         </label>
-        <label style={{ marginLeft: '20px' }}>
-          Mínimo de Presenças:
-          <input
-            type="number"
-            value={minPresencas}
-            onChange={(e) => setMinPresencas(parseInt(e.target.value))}
-            style={{ marginLeft: '10px' }}
-          />
-        </label>
-        <button onClick={fetchPresentes} style={{ marginLeft: '20px' }}>
-          Buscar
+
+        <button onClick={fetchPresentes} style={{ marginLeft: '10px' }}>
+          Atualizar
         </button>
+ 
       </div>
       {loading && <div>Carregando...</div>}
       {error && <div style={{ color: 'red' }}>{error}</div>}
       <div style={{ marginBottom: '20px' }}>
         <strong>Total de Pessoas:</strong> {pessoas.length}
       </div>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead>
-          <tr>
-            <th style={{ border: '1px solid #ccc', padding: '8px', maxWidth: '15%' }}>Foto</th>
-            <th style={{ border: '1px solid #ccc', padding: '8px' }}>Tags</th>
-            <th style={{ border: '1px solid #ccc', padding: '8px' }}>Registros</th>
-            <th style={{ border: '1px solid #ccc', padding: '8px' }}>Ações</th>
-          </tr>
-        </thead>
-        <tbody>
-          {pessoas.map((pessoa) => (
-            <tr key={pessoa.uuid}>
-              <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'center', maxWidth: '15%' }}>
-                {pessoa.primary_photo ? (
-                  <img
-                    src={pessoa.primary_photo}
-                    alt={`Foto de ${pessoa.uuid}`}
-                    style={{
-                      width: '75px',
-                      height: '75px',
-                      borderRadius: '4px',
-                      transition: 'transform 0.2s',
-                    }}
-                    onMouseOver={(e) => (e.currentTarget.style.transform = 'scale(1.5)')}
-                    onMouseOut={(e) => (e.currentTarget.style.transform = 'scale(1)')}
-                  />
-                ) : (
-                  <div style={{ width: '75px', height: '75px', backgroundColor: '#eee' }} />
-                )}
-                <input
-                  type="text"
-                  placeholder="Adicionar tag"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      addTag(pessoa.uuid, e.currentTarget.value);
-                      e.currentTarget.value = '';
-                    }
-                  }}
-                  style={{ marginTop: '10px', width: '100%' }}
-                />
-              </td>
-              <td style={{ border: '1px solid #ccc', padding: '8px' }}>
-                {pessoa.tags.map((tag) => (
-                  <span key={tag} style={{ display: 'inline-block', margin: '5px' }}>
-                    {tag}
-                    <button
-                      onClick={() => removeTag(pessoa.uuid, tag)}
-                      style={{
-                        marginLeft: '5px',
-                        backgroundColor: 'red',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '50%',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      ×
-                    </button>
-                  </span>
-                ))}
-              </td>
-              <td style={{ border: '1px solid #ccc', padding: '8px' }}>{pessoa.presencas_count}</td>
-              <td style={{ border: '1px solid #ccc', padding: '8px', textAlign: 'center' }}>
-                <button onClick={() => openModal(pessoa.uuid)} style={{ marginBottom: '10px' }}>
-                  Ver Fotos
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+
+      <div style={{ marginTop: '20px', display: 'flex', flexWrap: 'wrap', gap: '10px', justifyContent: 'center' }}>
+        {pessoas.map((pessoa) => (
+          pessoa.primary_photo && (
+            <img key={pessoa.uuid} src={pessoa.primary_photo} alt={`Foto de ${pessoa.uuid}`} style={{ width: '100px', height: '100px', objectFit: 'cover', borderRadius: '4px', cursor: 'pointer' }} 
+            onMouseOver={(e) => (e.currentTarget.style.transform = 'scale(1.5)')}
+            onMouseOut={(e) => (e.currentTarget.style.transform = 'scale(1)')}
+            onClick={() => openModal(pessoa.uuid)}  />
+          )
+        ))}
+      </div>
       <Modal
         isOpen={modalIsOpen}
         onRequestClose={closeModal}
@@ -252,6 +206,7 @@ const Presentes: React.FC = () => {
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h2>Fotos da Pessoa {selectedPessoaUuid}</h2>
+          <h3>{tags.join(', ')}</h3> {/* Exibe as tags da pessoa */}
           <button
             onClick={closeModal}
             style={{

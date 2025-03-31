@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useAuth } from "./AuthContext";
 
 interface PeopleCardProps {
   uuid: string;
@@ -18,12 +19,16 @@ const PeopleCard: React.FC<PeopleCardProps> = ({ uuid, tags, onOpenModal, onDele
   const [tagInput, setTagInput] = useState<string>("");
   const [localTags, setLocalTags] = useState<string[]>(tags);
   const [photoCount, setPhotoCount] = useState<number>(0);
+  const { token } = useAuth();
+
 
   // Busca os detalhes da pessoa (incluindo a foto primária e tags)
   useEffect(() => {
     async function fetchDetails() {
       try {
-        const res = await fetch(`http://localhost:8000/pessoas/${uuid}`);
+        const res = await fetch(`http://localhost:8000/pessoas/${uuid}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
         const data: PessoaDetails = await res.json();
         setPrimaryPhoto(data.primary_photo);
         setLocalTags(data.tags);
@@ -38,7 +43,9 @@ const PeopleCard: React.FC<PeopleCardProps> = ({ uuid, tags, onOpenModal, onDele
   useEffect(() => {
     async function fetchPhotoCount() {
       try {
-        const res = await fetch(`http://localhost:8000/pessoas/${uuid}/photos/count`);
+        const res = await fetch(`http://localhost:8000/pessoas/${uuid}/photos/count`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
         const data = await res.json();
         if (data.photo_count !== undefined) {
           setPhotoCount(data.photo_count);
@@ -55,7 +62,7 @@ const PeopleCard: React.FC<PeopleCardProps> = ({ uuid, tags, onOpenModal, onDele
     try {
       const res = await fetch(`http://localhost:8000/pessoas/${uuid}/tags`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ tag: tagInput.trim() }),
       });
       if (res.ok) {
@@ -73,7 +80,7 @@ const PeopleCard: React.FC<PeopleCardProps> = ({ uuid, tags, onOpenModal, onDele
     try {
       const res = await fetch(`http://localhost:8000/pessoas/${uuid}/tags`, {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json" , Authorization: `Bearer ${token}`},
         body: JSON.stringify({ tag }), // O backend deve tratar a remoção da tag
       });
       if (res.ok) {

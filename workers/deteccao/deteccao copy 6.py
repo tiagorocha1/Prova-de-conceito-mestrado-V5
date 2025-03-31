@@ -236,9 +236,6 @@ def callback(ch, method, properties, body):
         inicio_processamento = received_message["inicio_processamento"]
         tempo_captura_frame = received_message["tempo_captura_frame"]
         data_captura_frame = received_message["data_captura_frame"]
-        tag_video = received_message["tag_video"]
-        timestamp = received_message["timestamp"]
-
 
         print(f"📩 Recebida mensagem: {minio_path}")
 
@@ -254,9 +251,7 @@ def callback(ch, method, properties, body):
                 "minio_path": face_path,
                 "inicio_processamento": inicio_processamento,
                 "tempo_captura_frame": tempo_captura_frame,
-                "tempo_deteccao": tempo_deteccao,
-                "tag_video": tag_video,
-                "timestamp": timestamp,
+                "tempo_deteccao": tempo_deteccao
             })
             channel.basic_publish(
                 exchange='',

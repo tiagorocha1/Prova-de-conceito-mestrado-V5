@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import Modal from "react-modal";
 import PeopleCard from "./PeopleCard";
+import { useAuth } from "./AuthContext";
 
 
 interface Pessoa {
@@ -28,10 +29,14 @@ export const PeopleList: React.FC = () => {
   const [photos, setPhotos] = useState<string[]>([]);
   const [photosLoading, setPhotosLoading] = useState<boolean>(false);
 
+  const { token } = useAuth();
+
   const fetchPessoas = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`http://localhost:8000/pessoas?page=${page}&limit=${limit}`);
+      const res = await fetch(`http://localhost:8000/pessoas?page=${page}&limit=${limit}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const data = await res.json();
       setPessoas(data.pessoas);
       setTotal(data.total);
@@ -44,7 +49,9 @@ export const PeopleList: React.FC = () => {
   const fetchPhotos = async (uuid: string) => {
     setPhotosLoading(true);
     try {
-      const res = await fetch(`http://localhost:8000/pessoas/${uuid}/photos`);
+      const res = await fetch(`http://localhost:8000/pessoas/${uuid}/photos`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const data: PessoaPhotos = await res.json();
       setPhotos(data.image_urls);
     } catch (error) {
@@ -57,6 +64,7 @@ export const PeopleList: React.FC = () => {
     try {
       const res = await fetch(`http://localhost:8000/pessoas/${uuid}`, {
         method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
         fetchPessoas();
@@ -91,7 +99,7 @@ export const PeopleList: React.FC = () => {
     try {
       const res = await fetch(`http://localhost:8000/pessoas/${selectedPessoaUuid}/photos`, {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json" , Authorization: `Bearer ${token}` },
         body: JSON.stringify({ photo: photoUrl }),
       });
       if (res.ok) {

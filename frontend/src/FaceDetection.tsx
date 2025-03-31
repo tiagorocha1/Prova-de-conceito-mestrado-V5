@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Camera } from '@mediapipe/camera_utils';
+import { useAuth } from "./AuthContext";
 
 function FaceDetectionComponent() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -8,6 +9,7 @@ function FaceDetectionComponent() {
   const cameraRef = useRef<Camera | null>(null);
   const throttleInterval = 1000; // Envia 1 frame a cada 1000 ms (1 segundo)
   const lastSentTimeRef = useRef<number>(0);
+  const { token } = useAuth();
 
   // Configura a câmera para capturar os frames
   useEffect(() => {
@@ -57,7 +59,7 @@ function FaceDetectionComponent() {
     // Envia o payload para o backend; o retorno é ignorado
     fetch('http://localhost:8000/frame', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json' , Authorization: `Bearer ${token}`},
       body: JSON.stringify(payload),
     }).catch(err => {
       console.error('Erro ao enviar frame:', err);

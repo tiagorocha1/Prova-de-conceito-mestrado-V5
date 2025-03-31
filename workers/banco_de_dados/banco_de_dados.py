@@ -4,6 +4,7 @@ import logging
 from pymongo import MongoClient
 from dotenv import load_dotenv
 import os
+from datetime import datetime
 
 # Carregar variáveis de ambiente
 load_dotenv()
@@ -33,15 +34,20 @@ def registrar_presenca(ch, method, properties, body):
     try:
         msg = json.loads(body)
 
+        fim_processamento = datetime.now().timestamp()
         presence_doc = {
             "data_captura_frame": msg["data_captura_frame"],
-            "hora_captura_frame": msg["hora_captura_frame"],
-            "inicio": msg["inicio"],
-            "fim": msg["fim"],
-            "tempo_processamento": msg["tempo_processamento"],
+            "inicio_processamento": msg["inicio_processamento"],
+            "fim_processamento": fim_processamento,
+            "tempo_processamento_total": fim_processamento - msg["inicio_processamento"],
+            "tempo_captura_frame": msg["tempo_captura_frame"],
+            "tempo_deteccao": msg["tempo_deteccao"], 
+            "tempo_reconhecimento": msg["tempo_reconhecimento"],
             "pessoa": msg["uuid"],
             "foto_captura": msg["reconhecimento_path"],
             "tags": msg.get("tags", []),
+            "tag_video": msg.get("tag_video"),
+            "timestamp": msg.get("timestamp"),
         }
 
         # Inserir no MongoDB

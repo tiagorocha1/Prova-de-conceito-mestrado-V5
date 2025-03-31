@@ -23,6 +23,7 @@ MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY")
 MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY")
 BUCKET_NAME = os.getenv("MINIO_BUCKET")
 
+# Configuração do MinIO
 minio_client = Minio(
     MINIO_ENDPOINT,
     access_key=MINIO_ACCESS_KEY,
@@ -41,7 +42,7 @@ if not minio_client.bucket_exists(bucket_name):
 # ----------------------------
 WEBCAM_FPS = 20  # Taxa de frames por segundo para a webcam
 VIDEO_FPS = 20   # Taxa de frames por segundo para arquivos de vídeo
-CAPTURE_INTERVAL = 1  # Intervalo de captura em segundos
+CAPTURE_INTERVAL = 1 # Intervalo de captura em segundos
 
 def save_image_to_minio(image_buffer: io.BytesIO, object_name: str):
     """Salva uma imagem no MinIO dentro da subpasta do dia corrente (DD-MM-AAAA)."""
@@ -59,6 +60,7 @@ def save_image_to_minio(image_buffer: io.BytesIO, object_name: str):
 
     except Exception as e:
         print(f"❌ Erro ao salvar no MinIO: {e}")
+
 
 class WebcamApp:
     def __init__(self, root):
@@ -91,12 +93,6 @@ class WebcamApp:
         # Botão para selecionar arquivo de vídeo
         self.video_button = tk.Button(root, text="Selecionar Arquivo de Vídeo", command=self.select_video_file)
         self.video_button.pack(pady=10)
-
-        # NOVO: Campo de entrada para Tag Video
-        self.video_tag_label = tk.Label(root, text="Tag Video:")
-        self.video_tag_label.pack(pady=10)
-        self.video_tag_entry = tk.Entry(root)
-        self.video_tag_entry.pack()
 
         # Botões para iniciar e parar a captura
         self.start_button = tk.Button(root, text="Iniciar Captura", command=self.start_capture, bg="green", fg="white")
@@ -233,10 +229,8 @@ class WebcamApp:
             # Marca o fim do processamento e calcula o tempo total (em milissegundos)
             fim_processamento = datetime.now().timestamp()
             tempo_captura_frame = fim_processamento - inicio_processamento
-            # Obtém o valor da tag de vídeo informado na interface
-            tag_video = self.video_tag_entry.get()
-            # Envia a mensagem para o RabbitMQ com o valor da tag video incluso
-            await rabbitmq_manager.send_message(minio_path, inicio_processamento, tempo_captura_frame, tag_video)
+            # Envia a mensagem para o RabbitMQ
+            await rabbitmq_manager.send_message(minio_path, inicio_processamento, tempo_captura_frame)
             print(f"✅ Imagem salva e mensagem enviada: {minio_path}")
         except Exception as e:
             print(f"❌ Erro no upload: {e}")
@@ -247,7 +241,7 @@ class WebcamApp:
         self.loop.run_forever()
 
 class RabbitMQManager:
-    """Gerencia a conexão com RabbitMQ, garantindo que não seja fechada prematuramente."""
+    """ Gerencia a conexão com RabbitMQ, garantindo que não seja fechada prematuramente. """
 
     def __init__(self):
         self.connection = None
@@ -255,7 +249,7 @@ class RabbitMQManager:
         self.loop = asyncio.get_event_loop()
 
     async def connect(self):
-        """Mantém uma conexão aberta e persistente com o RabbitMQ."""
+        """ Mantém uma conexão aberta e persistente com o RabbitMQ """
         if self.connection is None or self.connection.is_closed:
             self.connection = await aio_pika.connect_robust("amqp://guest:guest@localhost:5672/")
             self.channel = await self.connection.channel()
@@ -263,18 +257,17 @@ class RabbitMQManager:
             await self.channel.declare_queue("frame", durable=True)
             print("✅ Conectado ao RabbitMQ e canal configurado!")
 
-    async def send_message(self, minio_path: str, inicio_processamento: int, tempo_captura_frame: int, tag_video: str):
-        """Envia a mensagem garantindo que a conexão esteja ativa e inclui a tag video."""
+    async def send_message(self, minio_path: str, inicio_processamento: int, tempo_captura_frame: int):
+        """ Envia a mensagem garantindo que a conexão esteja ativa """
         await self.connect()
 
         try:
+            
             message_body = json.dumps({
                 "minio_path": minio_path,
                 "inicio_processamento": inicio_processamento,
                 "tempo_captura_frame": tempo_captura_frame,
-                "data_captura_frame": datetime.now().strftime("%d-%m-%Y"),
-                "tag_video": tag_video,
-                "timestamp": datetime.now().timestamp()
+                "data_captura_frame": datetime.now().strftime("%d-%m-%Y")
             })
             message = aio_pika.Message(
                 body=message_body.encode("utf-8"),
