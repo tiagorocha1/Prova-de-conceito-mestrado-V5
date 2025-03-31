@@ -15,6 +15,7 @@ import hashlib
 import logging
 from dotenv import load_dotenv
 from concurrent.futures import ProcessPoolExecutor
+from multiprocessing import freeze_support
 
 # -------------------------------
 # Configurações
@@ -24,7 +25,6 @@ load_dotenv()
 TEMP_DIR = os.getenv("TEMP_DIR")
 os.makedirs(TEMP_DIR, exist_ok=True)
 
-# Configuração de logs
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -62,8 +62,8 @@ channel = connection.channel()
 channel.queue_declare(queue=QUEUE_NAME, durable=True)
 channel.queue_declare(queue="reconhecimentos", durable=True)  # Fila de saída
 
-# Cria um pool de processos para paralelizar o processamento facial
-executor = ProcessPoolExecutor(max_workers=4)
+# Executor global (será inicializado na função main)
+executor = None
 
 # -------------------------------
 # Funções Auxiliares
@@ -228,7 +228,7 @@ def callback(ch, method, properties, body):
 
         # Envia o processamento da face para o pool de processos
         future = executor.submit(process_face, image)
-        result = future.result()  # Aguarda o processamento (este ponto bloqueia o callback, mas o trabalho é feito em paralelo)
+        result = future.result()
 
         # Cria a mensagem de saída com os dados processados
         output_msg = json.dumps({
@@ -260,8 +260,15 @@ def callback(ch, method, properties, body):
         ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
 
 # -------------------------------
-# Inicia o Consumidor
+# Função Principal
 # -------------------------------
-channel.basic_consume(queue=QUEUE_NAME, on_message_callback=callback)
-print("🎯 Aguardando mensagens...")
-channel.start_consuming()
+def main():
+    global executor
+    executor = ProcessPoolExecutor(max_workers=4)
+    channel.basic_consume(queue=QUEUE_NAME, on_message_callback=callback)
+    print("🎯 Aguardando mensagens...")
+    channel.start_consuming()
+
+if __name__ == '__main__':
+    freeze_support()  # Necessário para Windows ou sistemas que usem spawn
+    main()
