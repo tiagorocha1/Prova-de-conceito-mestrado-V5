@@ -11,6 +11,7 @@ import numpy as np
 from io import BytesIO
 from deepface import DeepFace
 import concurrent.futures
+from pymongo import MongoClient, ReturnDocument
 
 # Carregar variáveis de ambiente
 load_dotenv()
@@ -26,6 +27,8 @@ DETECCOES_BUCKET = os.getenv('DETECCOES_BUCKET')  # Bucket onde as faces serão 
 OUTPUT_FOLDER_DETECTIONS = os.getenv('OUTPUT_FOLDER_DETECTIONS')
 MIN_FACE_WIDTH = 130
 MIN_FACE_HEIGHT = 130
+MONGO_URI = os.getenv('MONGO_URI')
+MONGO_DB_NAME = os.getenv('MONGO_DB_NAME')
 
 # Conectar ao MinIO
 minio_client = Minio(
@@ -34,6 +37,44 @@ minio_client = Minio(
     secret_key=MINIO_SECRET_KEY,
     secure=False  # Defina como True se estiver usando HTTPS
 )
+
+# Conexão com MongoDB
+client = MongoClient(MONGO_URI)
+db = client[MONGO_DB_NAME]
+frames = db["frames"]
+counters = db["counters"]
+# Criar bucket se não existir
+if not minio_client.bucket_exists(DETECCOES_BUCKET):
+    minio_client.make_bucket(DETECCOES_BUCKET)
+
+# 🔢 Função para obter número sequencial por tag_video
+def get_next_sequence_value(tag_video: str) -> int:
+    counter = counters.find_one_and_update(
+        {"_id": tag_video},
+        {"$inc": {"sequence_value": 1}},
+        upsert=True,
+        return_document=ReturnDocument.AFTER
+    )
+    return counter["sequence_value"]
+
+def salvar_frame_sem_faces(frame_uuid: str, tag_video: str, duracao: str = None, fps: str = None):
+    """
+    Salva no MongoDB um documento representando um frame sem faces detectadas.
+    """
+    numero_frame = get_next_sequence_value(tag_video)
+    novo_frame = {
+        "uuid": frame_uuid,
+        "total_faces_detectadas": 0,
+        "total_faces_reconhecidas": 0,
+        "tag_video": tag_video,
+        "lista_presencas": [],
+        "duracao": duracao,
+        "fps": fps,
+        "numero_frame": numero_frame
+    }
+    frames.insert_one(novo_frame)
+    print(f"🗃️ Frame sem faces salvo no MongoDB: {novo_frame}")
+
 
 def is_frontal_face(facial_area, angle_threshold=25, symmetry_threshold=0.5):
     """
@@ -190,7 +231,7 @@ def process_image(image_bytes, image_name):
         start_time = datetime.now().timestamp()
         detections = DeepFace.extract_faces(
             img_path=img, 
-            detector_backend='retinaface', # 'opencv', 'retinaface', 'mtcnn', 'ssd', 'dlib', 'mediapipe', 'yolov8', 'yolov11n', 'yolov11s', 'yolov11m','centerface' or 'skip' (default is opencv)
+            detector_backend='centerface', # 'opencv', 'retinaface', 'mtcnn', 'ssd', 'dlib', 'mediapipe', 'yolov8', 'yolov11n', 'yolov11s', 'yolov11m','centerface' or 'skip' (default is opencv)
             enforce_detection=False,
             anti_spoofing=True
         )
@@ -238,6 +279,13 @@ def callback(ch, method, properties, body):
         data_captura_frame = received_message["data_captura_frame"]
         tag_video = received_message["tag_video"]
         timestamp = received_message["timestamp"]
+        frame_uuid = received_message["frame_uuid"]
+        fps = received_message["fps"]
+        duracao = received_message["duracao"]
+        fim_captura = received_message.get("fim_captura")
+        inicio_deteccao = datetime.now().timestamp()
+        tempo_espera_captura_deteccao = inicio_deteccao - float(fim_captura or inicio_deteccao)
+
 
 
         print(f"📩 Recebida mensagem: {minio_path}")
@@ -246,6 +294,11 @@ def callback(ch, method, properties, body):
         image_bytes = response.read()
 
         detected_faces = process_image(image_bytes, os.path.basename(minio_path))
+
+        if not detected_faces:
+            salvar_frame_sem_faces(frame_uuid, tag_video, duracao, fps)
+            ch.basic_ack(delivery_tag=method.delivery_tag)
+            return
 
         tempo_deteccao = datetime.now().timestamp() - start_time
         for face_path in detected_faces:
@@ -257,6 +310,14 @@ def callback(ch, method, properties, body):
                 "tempo_deteccao": tempo_deteccao,
                 "tag_video": tag_video,
                 "timestamp": timestamp,
+                "frame_uuid": frame_uuid,
+                "frame_total_faces": len(detected_faces),
+                "fps": fps,
+                "duracao": duracao,
+                "tempo_espera_captura_deteccao": tempo_espera_captura_deteccao,
+                "inicio_deteccao": inicio_deteccao,
+                "fim_deteccao": datetime.now().timestamp(),
+
             })
             channel.basic_publish(
                 exchange='',

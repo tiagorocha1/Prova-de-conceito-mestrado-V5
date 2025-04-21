@@ -7,6 +7,8 @@ import PresencaTable from "./PresencaTable";
 import Presentes from "./Presentes";
 import Login from "./Login";
 import { useAuth } from "./AuthContext";
+import FrameEstatisticas from "./FrameEstatisticas";
+import FrameAgrupamentos from "./FrameAgrupamentos";
 
 function App() {
   const { token, logout } = useAuth();
@@ -37,6 +39,14 @@ function App() {
         <Link to="/presentes" style={{ color: "#fff", textDecoration: "none" }}>
           Presentes
         </Link>
+
+        <Link to="/estatisticas-frames" style={{ color: "#fff", textDecoration: "none" }}>
+          Estatísticas
+        </Link>
+
+        <Link to="/agrupamentos" style={{ color: "#fff", textDecoration: "none" }}>
+          Agrupamentos
+        </Link>
         <button
           onClick={logout}
           style={{
@@ -56,6 +66,8 @@ function App() {
           <Route path="/presencas" element={<PresencaTable />} />
           <Route path="/pessoas" element={<PeopleList />} />
           <Route path="/presentes" element={<Presentes />} />
+          <Route path="/estatisticas-frames" element={<FrameEstatisticas />} />
+          <Route path="/agrupamentos" element={<FrameAgrupamentos />} /> 
           {/* Você pode adicionar outras rotas protegidas aqui */}
         </Routes>
       </div>

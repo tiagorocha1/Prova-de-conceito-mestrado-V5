@@ -24,6 +24,7 @@ from passlib.context import CryptContext
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from typing import Optional
 from passlib.context import CryptContext
+import matplotlib.pyplot as plt
 
 
 # ----------------------------
@@ -61,6 +62,7 @@ db = client[MONGO_DB_NAME]
 pessoas = db["pessoas"]
 presencas = db["presencas"]
 users = db["users"]
+frames = db["frames"]
 
 # ----------------------------
 # Configuração do MinIO
@@ -172,6 +174,43 @@ async def get_current_active_user(current_user: User = Depends(get_current_user)
     if current_user.disabled:
         raise HTTPException(status_code=400, detail="Inactive user")
     return current_user
+
+# ----------------------------
+# Grafico de Presença
+# ----------------------------
+
+def gerar_graficos_para_tag(tag_video: str, dados: list[dict], pasta_saida="static/plots"):
+    if not os.path.exists(pasta_saida):
+        os.makedirs(pasta_saida)
+
+    numeros = [d["numero_frame"] for d in dados]
+    detectados = [d["total_faces_detectadas"] for d in dados]
+    reconhecidos = [d["total_faces_reconhecidas"] for d in dados]
+
+    # Gráfico 1 - Detecção
+    plt.figure()
+    plt.plot(numeros, detectados, marker="o")
+    plt.title(f"Detecções - {tag_video}")
+    plt.xlabel("Número do Frame")
+    plt.ylabel("Pessoas Detectadas")
+    plt.grid(True)
+    path_detectados = os.path.join(pasta_saida, f"{tag_video}_detectados.png")
+    plt.savefig(path_detectados)
+    plt.close()
+
+    # Gráfico 2 - Reconhecimento
+    plt.figure()
+    plt.plot(numeros, reconhecidos, marker="o", color="green")
+    plt.title(f"Reconhecimentos - {tag_video}")
+    plt.xlabel("Número do Frame")
+    plt.ylabel("Pessoas Reconhecidas")
+    plt.grid(True)
+    path_reconhecidos = os.path.join(pasta_saida, f"{tag_video}_reconhecidos.png")
+    plt.savefig(path_reconhecidos)
+    plt.close()
+
+    # Retorna os caminhos relativos
+    return f"/static/plots/{tag_video}_detectados.png", f"/static/plots/{tag_video}_reconhecidos.png"
 
 # ----------------------------
 # Endpoints de Autenticação
@@ -423,10 +462,11 @@ async def list_presencas(
     Retorna uma lista paginada de registros de presença.
     Se os parâmetros "tag_video" ou "data_captura_frame" forem informados,
     filtra os registros pelo valor especificado.
+
     Além disso, retorna:
-      - o somatório de todos os campos "tempo_processamento_total" na variável "tempo_processamento_fonte",
-      - o total de pessoas distintas no campo "pessoa" na variável "total_de_pessoas".
-    As imagens são acessadas via presigned URLs (válidas por 10 minutos).
+      - o somatório de tempo_captura_frame + tempo_deteccao + tempo_reconhecimento de todos os documentos como "tempo_processamento",
+      - o somatório de tempo_fila_real (registrado) como "tempo_fila",
+      - o total de pessoas distintas como "total_de_pessoas".
     """
     try:
         skip = (page - 1) * limit
@@ -436,20 +476,25 @@ async def list_presencas(
         if tag_video:
             query["tag_video"] = tag_video
         if data_captura_frame:
-            # Converte de YYYY-MM-DD (valor vindo do frontend) para DD-MM-YYYY (formato do banco)
             data_formatada = datetime.strptime(data_captura_frame, "%Y-%m-%d").strftime("%d-%m-%Y")
             query["data_captura_frame"] = data_formatada
 
-        # Pipeline de agregação para somar o tempo_processamento_total de todos os documentos filtrados
-        agg_pipeline = [
-            {"$match": query},
-            {"$group": {"_id": None, "total_tempo": {"$sum": {"$toDouble": "$tempo_processamento_total"}}}}
-        ]
-        agg_result = list(presencas.aggregate(agg_pipeline))
-        if agg_result:
-            tempo_processamento_fonte = agg_result[0].get("total_tempo", 0)
-        else:
-            tempo_processamento_fonte = 0
+        # Obtem os documentos filtrados para cálculo personalizado
+        documentos = list(presencas.find(query))
+
+        tempo_processamento = 0.0
+        tempo_fila = 0.0
+
+        for doc in documentos:
+            captura = float(doc.get("tempo_captura_frame", 0))
+            deteccao = float(doc.get("tempo_deteccao", 0))
+            reconhecimento = float(doc.get("tempo_reconhecimento", 0))
+            tempo_fila_real = float(doc.get("tempo_fila_real", 0))
+
+            processamento = captura + deteccao + reconhecimento
+
+            tempo_processamento += processamento
+            tempo_fila += tempo_fila_real
 
         # Calcula o total de pessoas distintas
         distinct_personas = presencas.distinct("pessoa", query)
@@ -473,17 +518,24 @@ async def list_presencas(
                 "tag_video": p.get("tag_video"),
                 "tags": p.get("tags", []),
                 "data_captura_frame": p.get("data_captura_frame"),
+                "timestamp_inicial": p.get("timestamp_inicial"),
+                "timestamp_final": p.get("timestamp_final"),
+                "tempo_fila": p.get("tempo_fila_real"),
             })
 
         total = presencas.count_documents(query)
+
         return JSONResponse({
             "presencas": results,
             "total": total,
-            "tempo_processamento_fonte": tempo_processamento_fonte,
+            "tempo_processamento": tempo_processamento,
+            "tempo_fila": tempo_fila,
             "total_de_pessoas": total_de_pessoas
         }, status_code=200)
+
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+
 
 
 
@@ -529,6 +581,123 @@ async def list_presentes(date: str, min_presencas: int):
     except Exception as e:
         logger.error(f"Erro ao buscar presentes: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
+    
+@app.get("/frames/estatisticas", dependencies=[Depends(get_current_active_user)])
+async def estatisticas_frames(tag_video: str):
+    """
+    Retorna estatísticas sobre os frames com base na tag de vídeo fornecida.
+    """
+    try:
+        query = {"tag_video": tag_video}
+
+        # Total de frames com a tag
+        total_frames = frames.count_documents(query)
+
+        # Frame com menor quantidade de pessoas detectadas
+        menor_frame = frames.find({"total_faces_detectadas": {"$gte": 1}}).sort("total_faces_detectadas", 1).limit(1)
+        menor_qtd = None
+        menor_uuid = None
+        doc = next(menor_frame, None)
+        if doc:
+            menor_qtd = doc["total_faces_detectadas"]
+            menor_uuid = doc["uuid"]
+
+        # Frame com maior quantidade de pessoas detectadas
+        maior_frame = frames.find({"total_faces_detectadas": {"$gte": 1}}).sort("total_faces_detectadas", -1).limit(1)
+        maior_qtd = None
+        maior_uuid = None
+        doc = next(maior_frame, None)
+        if doc:
+            maior_qtd = doc["total_faces_detectadas"]
+            maior_uuid = doc["uuid"]
+
+        # Quantidade de frames com 0 pessoas detectadas
+        frames_sem_pessoas = frames.count_documents({**query, "total_faces_detectadas": 0})
+
+        return JSONResponse({
+            "tag_video": tag_video,
+            "total_frames": total_frames,
+            "menor_qtd_faces_detectadas": menor_qtd,
+            "uuid_menor_qtd": menor_uuid,
+            "maior_qtd_faces_detectadas": maior_qtd,
+            "uuid_maior_qtd": maior_uuid,
+            "frames_sem_pessoas": frames_sem_pessoas
+        }, status_code=200)
+
+    except Exception as e:
+        logger.error(f"Erro ao calcular estatísticas dos frames: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+    
+@app.get("/frames/agrupamentos", dependencies=[Depends(get_current_active_user)])
+async def listar_agrupamentos_por_tag_video():
+    """
+    Retorna uma lista com informações agregadas por tag_video,
+    incluindo total_pessoas, fps, duracao e gráficos de detecção e reconhecimento.
+    """
+    try:
+        tags = frames.distinct("tag_video")
+        resultados = []
+
+        for tag_video in tags:
+            query = {"tag_video": tag_video}
+
+            total_frames = frames.count_documents(query)
+            frames_sem_pessoas = frames.count_documents({**query, "total_faces_detectadas": 0})
+
+            # Frame de exemplo para extrair fps e duracao
+            frame_amostra = frames.find_one(query)
+            fps = frame_amostra.get("fps") if frame_amostra else None
+            duracao = frame_amostra.get("duracao") if frame_amostra else None
+
+            # Pessoas distintas com presença ligada à tag_video
+            pessoas_unicas = presencas.distinct("pessoa", {"tag_video": tag_video})
+            total_pessoas = len(pessoas_unicas)
+
+            # Frame com menor qtd de pessoas detectadas
+            menor_doc = frames.find({**query, "total_faces_detectadas": {"$gte": 1}})\
+                              .sort("total_faces_detectadas", 1).limit(1)
+            menor_qtd, menor_uuid = None, None
+            for doc in menor_doc:
+                menor_qtd = doc["total_faces_detectadas"]
+                menor_uuid = doc["uuid"]
+
+            # Frame com maior qtd de pessoas detectadas
+            maior_doc = frames.find({**query, "total_faces_detectadas": {"$gte": 1}})\
+                              .sort("total_faces_detectadas", -1).limit(1)
+            maior_qtd, maior_uuid = None, None
+            for doc in maior_doc:
+                maior_qtd = doc["total_faces_detectadas"]
+                maior_uuid = doc["uuid"]
+
+            # Buscar frames ordenados para gerar gráficos
+            frames_ordenados = list(frames.find(query).sort("numero_frame", 1))
+
+            # Gerar gráficos e obter paths relativos
+            grafico_detectados, grafico_reconhecidos = gerar_graficos_para_tag(tag_video, frames_ordenados)
+
+            resultados.append({
+                "tag_video": tag_video,
+                "total_frames": total_frames,
+                "frames_sem_pessoas": frames_sem_pessoas,
+                "menor_qtd_faces_detectadas": menor_qtd,
+                "uuid_menor_qtd": menor_uuid,
+                "maior_qtd_faces_detectadas": maior_qtd,
+                "uuid_maior_qtd": maior_uuid,
+                "total_pessoas": total_pessoas,
+                "fps": fps,
+                "duracao": duracao,
+                "grafico_detectados": grafico_detectados,
+                "grafico_reconhecidos": grafico_reconhecidos
+            })
+
+        return JSONResponse(resultados, status_code=200)
+
+    except Exception as e:
+        logger.error(f"Erro ao agrupar por tag_video: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+
 
 @app.get("/create_admin")
 async def create_admin():
@@ -543,7 +712,7 @@ async def create_admin():
         "email": None,
         "full_name": "Admin",
         "disabled": False,
-        "hashed_password": get_password_hash("teste")
+        "hashed_password": get_password_hash("admin")
     }
     users.insert_one(admin_data)
     return JSONResponse({"message": "Usuário admin criado com sucesso."}, status_code=201)

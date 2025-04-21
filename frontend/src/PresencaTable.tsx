@@ -12,12 +12,16 @@ interface Presenca {
   tags: string[];
   tag_video: string;
   data_captura_frame?: string;
+  timestamp_inicial?: number;
+  timestamp_final?: number;
+  tempo_fila: string; 
 }
 
 const PresencaTable: React.FC = () => {
   const [presencas, setPresencas] = useState<Presenca[]>([]);
   const [total, setTotal] = useState<number>(0);
-  const [tempoProcessamentoFonte, setTempoProcessamentoFonte] = useState<number>(0); // Novo estado para o somatório
+  const [tempoProcessamento, setTempoProcessamento] = useState<number>(0); // Novo estado para o somatório
+  const [tempoFila, setTempoFila] = useState<number>(0);
   const [totalPessoas, setTotalPessoas] = useState<number>(0);
   const [page, setPage] = useState<number>(1);
   const [loading, setLoading] = useState<boolean>(false);
@@ -43,7 +47,8 @@ const PresencaTable: React.FC = () => {
       const data = await res.json();
       setPresencas(data.presencas);
       setTotal(data.total);
-      setTempoProcessamentoFonte(data.tempo_processamento_fonte); // Atualiza o somatório
+      setTempoProcessamento(data.tempo_processamento); // Atualiza o somatório
+      setTempoFila(data.tempo_fila); // Atualiza o tempo de fila
       setTotalPessoas(data.total_de_pessoas); // Atualiza o total de pessoas
     } catch (error) {
       console.error("Erro ao buscar presenças:", error);
@@ -121,8 +126,9 @@ const PresencaTable: React.FC = () => {
 
       {/* Exibe o somatório do tempo de processamento da fonte */}
       <div style={{ marginBottom: "20px", fontWeight: "bold", color: "#FF0000" }}>
-        Tempo Processamento Fonte: {tempoProcessamentoFonte} ms (
-        {(tempoProcessamentoFonte / 1000).toFixed(2)} s / {(tempoProcessamentoFonte / 60000).toFixed(2)} min)
+        Tempo Processamento (Captura + Detecção + Reconhecimento) =  {(tempoProcessamento).toFixed(2)} s
+        <br />
+        Tempo Fila = {tempoFila.toFixed(2)} s
       </div>
 
       <div style={{ marginBottom: "20px", fontWeight: "bold"}}>
@@ -135,19 +141,28 @@ const PresencaTable: React.FC = () => {
       ) : (
         <>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th style={{ border: "1px solid #ccc", padding: "8px" }}>Foto Captura</th>
-                <th style={{ border: "1px solid #ccc", padding: "8px" }}>Fonte</th>
-                <th style={{ border: "1px solid #ccc", padding: "8px" }}>Tags</th>
-                <th style={{ border: "1px solid #ccc", padding: "8px" }}>Captura (ms)</th>
-                <th style={{ border: "1px solid #ccc", padding: "8px" }}>Detecção (ms)</th>
-                <th style={{ border: "1px solid #ccc", padding: "8px" }}>Reconhecimento (ms)</th>
-                <th style={{ border: "1px solid #ccc", padding: "8px" }}>Tempo Total (ms)</th>
-                <th style={{ border: "1px solid #ccc", padding: "8px" }}>Data Captura</th>
-                <th style={{ border: "1px solid #ccc", padding: "8px" }}>Ação</th>
-              </tr>
-            </thead>
+          <thead>
+            <tr>
+              <th rowSpan={2} style={{ border: "1px solid #ccc", padding: "8px" }}>Foto Captura</th>
+              <th rowSpan={2} style={{ border: "1px solid #ccc", padding: "8px" }}>Fonte</th>
+              <th rowSpan={2} style={{ border: "1px solid #ccc", padding: "8px" }}>Tags</th>
+              <th colSpan={4} style={{ border: "1px solid #ccc", padding: "8px" }}>Tempo de Processamento (s)</th>
+              {/* 
+              <th rowSpan={2} style={{ border: "1px solid #ccc", padding: "8px" }}>Inicio</th>
+              <th rowSpan={2} style={{ border: "1px solid #ccc", padding: "8px" }}>Fim</th>
+              */}
+              <th rowSpan={2} style={{ border: "1px solid #ccc", padding: "8px" }}>Tempo Fila (s)</th>
+              <th rowSpan={2} style={{ border: "1px solid #ccc", padding: "8px" }}>Ação</th>
+            </tr>
+            <tr>
+              <th style={{ border: "1px solid #ccc", padding: "8px" }}>Captura</th>
+              <th style={{ border: "1px solid #ccc", padding: "8px" }}>Detecção</th>
+              <th style={{ border: "1px solid #ccc", padding: "8px" }}>Reconhecimento</th>
+              <th style={{ border: "1px solid #ccc", padding: "8px" }}>Total</th>
+            </tr>
+          </thead>
+
+
             <tbody>
               {presencas.map((p) => (
                 <tr key={p.id}>
@@ -165,10 +180,23 @@ const PresencaTable: React.FC = () => {
                   <td style={{ border: "1px solid #ccc", padding: "8px" }}>{p.tempo_captura_frame}</td>
                   <td style={{ border: "1px solid #ccc", padding: "8px" }}>{p.tempo_deteccao}</td>
                   <td style={{ border: "1px solid #ccc", padding: "8px" }}>{p.tempo_reconhecimento}</td>
-                  <td style={{ border: "1px solid #ccc", padding: "8px" }}>{p.tempo_processamento_total}</td>
                   <td style={{ border: "1px solid #ccc", padding: "8px" }}>
-                    {p.data_captura_frame || "Sem data"}
+                    {(
+                      parseFloat(p.tempo_captura_frame) +
+                      parseFloat(p.tempo_deteccao) +
+                      parseFloat(p.tempo_reconhecimento)
+                    ).toFixed(2)}
                   </td>
+                  {/* 
+                  
+                  <td style={{ border: "1px solid #ccc", padding: "8px" }}>{new Date((p.timestamp_inicial ?? 0) * 1000).toLocaleString()}</td>
+                  <td style={{ border: "1px solid #ccc", padding: "8px" }}>{new Date((p.timestamp_final ?? 0) * 1000).toLocaleString()}</td>
+                  */}
+                  <td style={{ border: "1px solid #ccc", padding: "8px" }}>
+                    {p.tempo_fila}
+                  </td>
+
+
                   <td style={{ border: "1px solid #ccc", padding: "8px", textAlign: "center" }}>
                     <button
                       onClick={() => deletePresenca(p.id)}

@@ -56,6 +56,10 @@ minio_client = Minio(
     secure=False
 )
 
+# Criar bucket se não existir
+if not minio_client.bucket_exists(BUCKET_RECONHECIMENTO):
+    minio_client.make_bucket(BUCKET_RECONHECIMENTO)
+
 # Conexão ao RabbitMQ
 connection = pika.BlockingConnection(pika.ConnectionParameters(host=RABBITMQ_HOST))
 channel = connection.channel()
@@ -188,7 +192,7 @@ def process_face(image: Image.Image) -> dict:
     primary_photo = pessoa["image_paths"][0] if pessoa and pessoa.get("image_paths") else None
 
     finish_time = datetime.now().timestamp()
-    processing_time_ms = finish_time - start_time
+    processing_time = finish_time - start_time
 
     return {
         "uuid": matched_uuid,
@@ -197,7 +201,7 @@ def process_face(image: Image.Image) -> dict:
         "reconhecimento_path": minio_path,
         "inicio": start_time,
         "fim": finish_time,
-        "tempo_processamento": processing_time_ms
+        "tempo_processamento": processing_time
     }
 
 # -------------------------------
@@ -206,6 +210,10 @@ def process_face(image: Image.Image) -> dict:
 def callback(ch, method, properties, body):
     try:
         msg = json.loads(body)
+        tempo_espera_captura_deteccao = msg.get("tempo_espera_captura_deteccao", 0)
+        fim_deteccao = msg.get("fim_deteccao", datetime.now().timestamp())
+        inicio_reconhecimento = datetime.now().timestamp()
+        tempo_espera_deteccao_reconhecimento = inicio_reconhecimento - float(fim_deteccao or inicio_reconhecimento)
         minio_path = msg.get("minio_path")
         if not minio_path:
             logger.error("❌ Mensagem inválida, ignorando...")
@@ -225,6 +233,11 @@ def callback(ch, method, properties, body):
         data_captura_frame = msg.get("data_captura_frame")
         timestamp = msg.get("timestamp")
         tag_video = msg.get("tag_video")
+        frame_uuid = msg.get("frame_uuid")
+        frame_total_faces = msg.get("frame_total_faces")
+        fps = msg.get("fps")
+        duracao = msg.get("duracao")
+
 
         # Envia o processamento da face para o pool de processos
         future = executor.submit(process_face, image)
@@ -242,6 +255,15 @@ def callback(ch, method, properties, body):
             "tempo_reconhecimento": result["tempo_processamento"],
             "tag_video": tag_video,
             "timestamp": timestamp,
+            "frame_uuid": frame_uuid,
+            "frame_total_faces": frame_total_faces,
+            "fps": fps,
+            "duracao": duracao,
+            "tempo_espera_captura_deteccao": tempo_espera_captura_deteccao,
+            "tempo_espera_deteccao_reconhecimento": tempo_espera_deteccao_reconhecimento,
+            "inicio_reconhecimento": inicio_reconhecimento,
+            "fim_reconhecimento": datetime.now().timestamp(),
+
         })
 
         # Envia para a fila "reconhecimentos"

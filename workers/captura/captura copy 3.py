@@ -11,7 +11,6 @@ from minio import Minio
 from dotenv import load_dotenv
 import json
 import aio_pika
-import uuid
 
 # ----------------------------
 # Carregar Variáveis de Ambiente
@@ -42,7 +41,7 @@ if not minio_client.bucket_exists(bucket_name):
 # ----------------------------
 WEBCAM_FPS = 20  # Taxa de frames por segundo para a webcam
 VIDEO_FPS = 20   # Taxa de frames por segundo para arquivos de vídeo
-CAPTURE_INTERVAL = 1  # Intervalo de captura em segundos
+CAPTURE_INTERVAL = 3  # Intervalo de captura em segundos
 
 def save_image_to_minio(image_buffer: io.BytesIO, object_name: str):
     """Salva uma imagem no MinIO dentro da subpasta do dia corrente (DD-MM-AAAA)."""
@@ -75,7 +74,7 @@ class WebcamApp:
         self.source_label.pack(pady=10)
 
         self.source_var = tk.StringVar()
-        self.source_dropdown = ttk.Combobox(root, textvariable=self.source_var, values=["Webcam", "Arquivo de Vídeo", "Câmera IP (Stream)"])
+        self.source_dropdown = ttk.Combobox(root, textvariable=self.source_var, values=["Webcam", "Arquivo de Vídeo"])
         self.source_dropdown.pack()
         self.source_dropdown.current(0)
 
@@ -99,35 +98,6 @@ class WebcamApp:
         self.video_tag_entry = tk.Entry(root)
         self.video_tag_entry.pack()
 
-        # Campo para definir FPS manualmente
-        self.fps_label = tk.Label(root, text="FPS (Frames por Segundo):")
-        self.fps_label.pack(pady=5)
-        self.fps_entry = tk.Entry(root)
-        self.fps_entry.pack()
-
-        # Campo para definir Duração (segundos)
-        self.duracao_label = tk.Label(root, text="Duração (em segundos):")
-        self.duracao_label.pack(pady=5)
-        self.duracao_entry = tk.Entry(root)
-        self.duracao_entry.pack()
-
-
-        # Campo para definir o intervalo de envio de frames
-        self.frame_skip_label = tk.Label(root, text="Enviar 1 frame a cada N frames:")
-        self.frame_skip_label.pack(pady=5)
-        self.frame_skip_entry = tk.Entry(root)
-        self.frame_skip_entry.insert(0, "10")  # valor padrão
-        self.frame_skip_entry.pack()
-
-
-
-
-        # Campo para URL do stream MJPEG
-        self.stream_url_label = tk.Label(root, text="URL da Câmera IP:")
-        self.stream_url_label.pack(pady=10)
-        self.stream_url_entry = tk.Entry(root, width=50)
-        self.stream_url_entry.pack()
-
         # Botões para iniciar e parar a captura
         self.start_button = tk.Button(root, text="Iniciar Captura", command=self.start_capture, bg="green", fg="white")
         self.start_button.pack(pady=20)
@@ -137,8 +107,8 @@ class WebcamApp:
         self.stop_button.config(state=tk.DISABLED)
 
         # Label para exibir o preview da webcam
-        #self.preview_label = tk.Label(root)
-        #self.preview_label.pack(pady=10)
+        self.preview_label = tk.Label(root)
+        self.preview_label.pack(pady=10)
 
         self.cap = None  # Instância do VideoCapture
         self.running = False
@@ -150,10 +120,6 @@ class WebcamApp:
         self.thread.start()
 
         self.last_capture_time = datetime.now()
-        self.frame_counter = 0
-        self.frame_skip = 10  # Enviar apenas 1 a cada 10 frames (pode ajustar)
-
-
 
     def get_available_cameras(self):
         """Descobre quais webcams estão disponíveis no sistema."""
@@ -203,45 +169,6 @@ class WebcamApp:
             self.fps = self.cap.get(cv2.CAP_PROP_FPS) or VIDEO_FPS
             self.frame_interval = int(1000 / self.fps)
 
-        elif source == "Câmera IP (Stream)":
-            stream_url = self.stream_url_entry.get()
-            if not stream_url:
-                messagebox.showerror("Erro", "URL da câmera IP não informada!")
-                return
-
-            self.cap = cv2.VideoCapture(stream_url)
-            if not self.cap.isOpened():
-                messagebox.showerror("Erro", f"Não foi possível abrir o stream da URL: {stream_url}")
-                return
-
-            self.fps = VIDEO_FPS
-            self.frame_interval = int(1000 / self.fps)
-
-        try:
-            self.fps = float(self.fps_entry.get()) if self.fps_entry.get().strip() else VIDEO_FPS
-        except ValueError:
-            messagebox.showerror("Erro", "FPS inválido!")
-            return
-
-        try:
-            self.duracao = float(self.duracao_entry.get()) if self.duracao_entry.get().strip() else None
-        except ValueError:
-            messagebox.showerror("Erro", "Duração inválida!")
-            return
-
-        self.frame_interval = int(1000 / self.fps)
-
-        try:
-            self.frame_skip = int(self.frame_skip_entry.get().strip())
-            if self.frame_skip <= 0:
-                raise ValueError("O valor de frame_skip deve ser maior que 0.")
-        except ValueError:
-            messagebox.showerror("Erro", "Intervalo de envio de frames inválido! Use um número inteiro maior que zero.")
-            return
-
-        self.frame_counter = 0  # Reinicia o contador a cada nova captura
-
-
         self.running = True
         self.start_button.config(state=tk.DISABLED)
         self.stop_button.config(state=tk.NORMAL)
@@ -257,7 +184,7 @@ class WebcamApp:
         if self.cap:
             self.cap.release()
             self.cap = None
-        #self.preview_label.config(image='')
+        self.preview_label.config(image='')
 
     def update_frame(self):
         """Atualiza o preview da webcam ou arquivo de vídeo e agenda o envio do frame."""
@@ -271,22 +198,20 @@ class WebcamApp:
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             im = Image.fromarray(frame_rgb)
             imgtk = ImageTk.PhotoImage(image=im)
-            #self.preview_label.imgtk = imgtk
+            self.preview_label.imgtk = imgtk  # Mantém referência para evitar garbage collection
             #self.preview_label.config(image=imgtk)
 
-            # Incrementa o contador de frames
-            self.frame_counter += 1
-
-            # Envia somente 1 a cada N frames
-            if self.frame_counter % self.frame_skip == 0:
+            # Verifica se o intervalo de captura foi atingido
+            current_time = datetime.now()
+            if (current_time - self.last_capture_time).total_seconds() >= CAPTURE_INTERVAL:
+                self.last_capture_time = current_time
+                # Processa o frame de forma assíncrona (salva no MinIO e envia mensagem)
                 asyncio.run_coroutine_threadsafe(self.upload_frame(frame), self.loop)
 
             # Agenda a próxima atualização com base na taxa de quadros do vídeo
-            self.root.after(self.frame_interval, self.update_frame)
-
+            self.root.after(100, self.update_frame)
 
     async def upload_frame(self, frame):
-        inicio_total = datetime.now().timestamp()
         # Marca o início do processamento
         inicio_processamento = datetime.now().timestamp()
 
@@ -296,31 +221,23 @@ class WebcamApp:
         minio_path = object_name
 
         # Codifica o frame em PNG
-        start_encode = datetime.now().timestamp()
         ret, buffer = cv2.imencode(".png", frame)
         if not ret:
             print("❌ Erro ao codificar frame.")
             return
         image_buffer = io.BytesIO(buffer.tobytes())
-        end_encode = datetime.now().timestamp()
 
         try:
             # Utiliza run_in_executor para executar a função em uma thread separada
-            start_minio = datetime.now().timestamp()
             await self.loop.run_in_executor(None, save_image_to_minio, image_buffer, object_name)
-            end_minio = datetime.now().timestamp()
             # Marca o fim do processamento e calcula o tempo total (em milissegundos)
             fim_processamento = datetime.now().timestamp()
             tempo_captura_frame = fim_processamento - inicio_processamento
             # Obtém o valor da tag de vídeo informado na interface
             tag_video = self.video_tag_entry.get()
             # Envia a mensagem para o RabbitMQ com o valor da tag video incluso
-            start_rabbit = datetime.now().timestamp()
-            fim_processamento = datetime.now().timestamp()
-            await rabbitmq_manager.send_message(minio_path, inicio_processamento, tempo_captura_frame, tag_video, self.fps, self.duracao,fim_processamento)
-            end_rabbit = datetime.now().timestamp()
+            await rabbitmq_manager.send_message(minio_path, inicio_processamento, tempo_captura_frame, tag_video)
             print(f"✅ Imagem salva e mensagem enviada: {minio_path}")
-            print(f"⏱️ Tempo total: {end_rabbit - inicio_total:.3f}s | Encode: {end_encode - start_encode:.3f}s | MinIO: {end_minio - start_minio:.3f}s | RabbitMQ: {end_rabbit - start_rabbit:.3f}s")
         except Exception as e:
             print(f"❌ Erro no upload: {e}")
 
@@ -346,7 +263,7 @@ class RabbitMQManager:
             await self.channel.declare_queue("frame", durable=True)
             print("✅ Conectado ao RabbitMQ e canal configurado!")
 
-    async def send_message(self, minio_path: str, inicio_processamento: int, tempo_captura_frame: int, tag_video: str, fps: float, duracao: float = None, fim_captura: float = None):
+    async def send_message(self, minio_path: str, inicio_processamento: int, tempo_captura_frame: int, tag_video: str):
         """Envia a mensagem garantindo que a conexão esteja ativa e inclui a tag video."""
         await self.connect()
 
@@ -357,11 +274,7 @@ class RabbitMQManager:
                 "tempo_captura_frame": tempo_captura_frame,
                 "data_captura_frame": datetime.now().strftime("%d-%m-%Y"),
                 "tag_video": tag_video,
-                "timestamp": datetime.now().timestamp(),
-                "frame_uuid": str(uuid.uuid4()),
-                "fps": fps,
-                "duracao": duracao,
-                "fim_captura": fim_captura,
+                "timestamp": datetime.now().timestamp()
             })
             message = aio_pika.Message(
                 body=message_body.encode("utf-8"),
