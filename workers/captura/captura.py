@@ -297,7 +297,8 @@ class WebcamApp:
 
         # Codifica o frame em PNG
         start_encode = datetime.now().timestamp()
-        frame = cv2.resize(frame, (1344,760)) 
+        #ret, buffer = cv2.imencode(".png", frame)
+        frame = cv2.resize(frame, (1344,760))  
         ret, buffer = cv2.imencode(".png", frame)
         if not ret:
             print("❌ Erro ao codificar frame.")
