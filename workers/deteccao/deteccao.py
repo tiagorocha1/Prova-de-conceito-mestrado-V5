@@ -38,9 +38,9 @@ OUTPUT_FOLDER_DETECTIONS = os.getenv('OUTPUT_FOLDER_DETECTIONS')
 MONGO_URI                = os.getenv('MONGO_URI')
 MONGO_DB_NAME            = os.getenv('MONGO_DB_NAME')
 
-MIN_DETECTION_CONFIDENCE = 0.5   # confiança mínima MediaPipe
-MIN_FACE_WIDTH           = 60    # px
-MIN_FACE_HEIGHT          = 60    # px
+MIN_DETECTION_CONFIDENCE = 0.80   # confiança mínima MediaPipe
+MIN_FACE_WIDTH           = 30    # px
+MIN_FACE_HEIGHT          = 30    # px
 
 # ----------------------------------------
 # Inicializa MediaPipe FaceDetection
@@ -113,8 +113,8 @@ def filtros(index: int, facial_area: dict) -> bool:
 # ----------------------------------------
 def process_face(i: int, detection: dict, img, today: str, save_folder: str, image_name: str):
     facial_area = detection["facial_area"]
-    if filtros(i, facial_area):
-        return None
+    #if filtros(i, facial_area):
+    #    return None
 
     x, y, w, h = facial_area["x"], facial_area["y"], facial_area["w"], facial_area["h"]
     face_img = img[y:y+h, x:x+w]

@@ -27,7 +27,7 @@ const PresencaTable: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [filterDate, setFilterDate] = useState<string>(""); // Estado para filtro por data
   const [filterTag, setFilterTag] = useState<string>("");   // Estado para filtro por tag_video
-  const limit = 10; // Número de registros por página
+  const limit = 10000; // Número de registros por página
 
   const { token } = useAuth();
 

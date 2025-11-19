@@ -195,6 +195,7 @@ Thumbs.db
 backend/db_faces/
 backend/faces_images/
 backend/temp/
+backend/static/
 
 # Ignorar subpastas específicas dos workers
 workers/deteccao/deteccoes/
