@@ -170,6 +170,7 @@ def process_face(image: Image.Image, tag_video: str) -> dict:
 
     match_found = False
     matched_uuid = None
+    matched_distance = None
 
     for pessoa in known_people:
         person_uuid = pessoa["uuid"]
@@ -194,6 +195,7 @@ def process_face(image: Image.Image, tag_video: str) -> dict:
                     if (match_count / total_imagens) >= 0.2:
                         match_found = True
                         matched_uuid = person_uuid
+                        matched_distance = result["distance"]
                         logger.info(f"✅ Face reconhecida - UUID: {matched_uuid}")
                         break
             except Exception as e:
@@ -244,7 +246,7 @@ def process_face(image: Image.Image, tag_video: str) -> dict:
     similarity_value = None
     if match_found:
         try:
-            similarity_value = result["distance"]
+            similarity_value = 1 - matched_distance
         except Exception:
             similarity_value = None
 
