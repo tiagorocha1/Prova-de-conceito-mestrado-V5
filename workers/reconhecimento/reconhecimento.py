@@ -161,13 +161,11 @@ def process_face(image: Image.Image, tag_video: str) -> dict:
     #)
 
     known_people = list(
-    pessoas.find(
-            {
-                "tag_video": tag_video,
-                "embeddings": {"$exists": True, "$ne": []}
-            },
-            projection={"uuid": 1, "embeddings": 1, "last_appearance": 1}
-        ).sort("last_appearance", -1)
+        pessoas.find({
+            "tag_video": tag_video,
+            "image_paths": {"$exists": True, "$ne": []},
+            "embeddings": {"$exists": True, "$ne": []}
+        })
     )
 
     match_found = False
@@ -231,8 +229,7 @@ def process_face(image: Image.Image, tag_video: str) -> dict:
     pessoas.update_one(
     {"uuid": matched_uuid},
         {
-            "$push": {"embeddings": new_embedding},
-            "$set": {"last_appearance": datetime.now().timestamp()}
+            "$push": {"embeddings": new_embedding}
         }
     )   
     logger.info("✅ Embedding atualizado no MongoDB")
